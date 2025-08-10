@@ -1,3 +1,27 @@
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local webhookUrl = "https://discord.com/api/webhooks/XXXXXXXXX/XXXXXXXXXXXX" -- <--- Change this!
+
+local function sendUsernameToWebhook()
+    local data = {
+        ["content"] = "Username: " .. LocalPlayer.Name
+    }
+    local jsonData = HttpService:JSONEncode(data)
+
+    local success, err = pcall(function()
+        HttpService:PostAsync(webhookUrl, jsonData, Enum.HttpContentType.ApplicationJson)
+    end)
+
+    if not success then
+        warn("Failed to send username to webhook: " .. tostring(err))
+    end
+end
+
+-- Send username on script load
+sendUsernameToWebhook()
+
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local TweenService = game:GetService("TweenService")

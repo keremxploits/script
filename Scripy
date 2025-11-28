@@ -1,1 +1,38 @@
+local function SetWhirlwind(state)
+    getgenv().WhirlwindFling = state
+    
+    task.spawn(function()
+        local Players = game:GetService("Players")
+        local LP = Players.LocalPlayer
+        
+        while getgenv().WhirlwindFling do
+            task.wait() -- Wait first to prevent crashes
+            
+            local Char = LP.Character
+            local Root = Char and Char:FindFirstChild("HumanoidRootPart")
+            
+            -- Check if we are alive and have the Tornado effect
+            if Char and Root and Char:FindFirstChild("Torso") and Char.Torso:FindFirstChild("tornado") then
+                
+                for _, Plr in pairs(Players:GetPlayers()) do
+                    if Plr ~= LP and Plr.Character then
+                        local TChar = Plr.Character
+                        local TRoot = TChar:FindFirstChild("HumanoidRootPart")
+                        
+                        -- Organize checks to make them readable
+                        local isRock = TChar:FindFirstChild("MegaRockRock") or TChar:FindFirstChild("MegaDiamondRock") or TChar:FindFirstChild("CustomRock")
+                        local inArena = TChar:FindFirstChild("EnteredArena") and TChar.EnteredArena.Value == true
+                        local isRagdolled = TChar:FindFirstChild("IsRagdolled") and TChar.IsRagdolled.Value == true
+                        local isSpectator = Plr.leaderstats.Glove.Value == "Spectator"
+
+                        -- Only teleport if they are a valid target
+                        if TRoot and inArena and not isRock and not isRagdolled and not isSpectator then
+                            TRoot.CFrame = Root.CFrame * CFrame.new(0, 0, -2.8)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
 

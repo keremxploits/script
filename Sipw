@@ -1,223 +1,1288 @@
-local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-local Window = Library:CreateWindow{
-    Title = "Items Manager",
-    SubTitle = "by noone",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(530, 325),
-    Resize = true,
-    MinSize = Vector2.new(470, 380),
-    Acrylic = true,
-    Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.Q
-}
-
-local Tabs = {
-    Main = Window:CreateTab{
-        Title = "Main",
-        Icon = "phosphor-users-bold"
-    }
-}
-
-local Options = Library.Options
-
+-- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local player = Players.LocalPlayer
-local character
-local humanoidRootPart
-local inventory = player:WaitForChild("Inventory")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 
-local function onCharacterAdded(char)
-    character = char
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+-- Variables
+local Player = Players.LocalPlayer
+local KillAuraEnabled = false
+local KillAuraRange = 50
+
+-- ESP Variables
+local NPCESPEnabled = false
+local CrateESPEnabled = false
+local NPCESPObjects = {}
+local CrateESPObjects = {}
+
+-- Crate Farm Variables
+local CrateFarmEnabled = false
+local CrateCooldown = 1
+local CrateMoveSpeed = 80
+local IsFarming = false
+
+-- NPC Farm Variables
+local NPCFarmEnabled = false
+local NPCFarmPosition = "Above"
+local NPCMinHPFilter = 0
+local NPCFarmMoveSpeed = 80
+
+-- Quest Variables
+local AutoQuestEnabled = false
+local QuestFarmAboveEnabled = false
+local QuestFarmBelowEnabled = false
+
+-- Platform/Float system
+local FloatPlatform = nil
+local FloatConnection = nil
+
+-- Toggle references for mutual exclusivity
+local QuestFarmAboveToggle = nil
+local QuestFarmBelowToggle = nil
+local NPCFarmAboveToggle = nil
+local NPCFarmBelowToggle = nil
+
+-- Crate Filters
+local CrateFilters = {
+    ["Special Grade Crate"] = true,
+    ["Holiday Crate"] = true,
+    ["Strengthened Crate II"] = true,
+    ["Strengthened Crate I"] = true,
+    ["Volcanic Crate"] = true,
+    ["Valuable Crate"] = true,
+    ["Flame Crate"] = true,
+    ["Grade 1 Crate"] = true,
+    ["Grade 2 Crate"] = true,
+    ["Grade 3 Crate"] = true
+}
+
+local CratePriority = {
+    ["Special Grade Crate"] = 100,
+    ["Holiday Crate"] = 95,
+    ["Strengthened Crate II"] = 90,
+    ["Strengthened Crate I"] = 85,
+    ["Volcanic Crate"] = 80,
+    ["Valuable Crate"] = 75,
+    ["Flame Crate"] = 70,
+    ["Grade 1 Crate"] = 30,
+    ["Grade 2 Crate"] = 20,
+    ["Grade 3 Crate"] = 10
+}
+
+-- Game constants
+local MAX_SAFE_SPEED = 100
+local MAX_CRATE_OPEN_DISTANCE = 25
+
+-- Remotes
+local DamageRemote = ReplicatedStorage:WaitForChild("NetworkComm"):WaitForChild("CombatService"):WaitForChild("DamageCharacter_Method")
+local SkillRemote = ReplicatedStorage:WaitForChild("NetworkComm"):WaitForChild("SkillService"):WaitForChild("StartSkilll_Method")
+local QuestRemote = ReplicatedStorage:WaitForChild("NetworkComm"):WaitForChild("QuestService"):WaitForChild("AcceptQuest_Method")
+local OpenCrateRemote = ReplicatedStorage:WaitForChild("NetworkComm"):WaitForChild("MapService"):WaitForChild("OpenExplorationCrate_Method")
+
+-- Quest Data with CORRECT level requirements from game configs
+-- Format: {id, npc, quest, level}
+local QuestData = {
+    -- Jujutsu High Student (Quest1)
+    {id = "Bully1", npc = "Jujutsu High Student", quest = "Upper Years I", level = 1},
+    {id = "Bully2", npc = "Jujutsu High Student", quest = "Upper Years II", level = 10},
+    
+    -- Instructor (Quest2)
+    {id = "q2mob1", npc = "Instructor", quest = "Defeat Cursed Campers", level = 25},
+    {id = "q2mob2", npc = "Instructor", quest = "Defeat Cursed Campers II", level = 40},
+    
+    -- Worried Student (Quest3)
+    {id = "q3mob1", npc = "Worried Student", quest = "Defeat Cursed Scholars", level = 55},
+    {id = "q3mob2", npc = "Worried Student", quest = "Defeat Cursed Scholars II", level = 70},
+    
+    -- Teacher (Quest5)
+    {id = "q5mob1", npc = "Teacher", quest = "Defeat Loan Sharks", level = 85},
+    {id = "q5mob2", npc = "Teacher", quest = "Defeat Loan Sharks II", level = 100},
+    
+    -- Physical Heavenly Restrictor
+    {id = "PHR1", npc = "Physical Heavenly Restrictor", quest = "Endurance I", level = 100},
+    {id = "PHR2", npc = "Physical Heavenly Restrictor", quest = "Endurance II", level = 150},
+    {id = "PHR3", npc = "Physical Heavenly Restrictor", quest = "Endurance III", level = 200},
+    {id = "PHR4", npc = "Physical Heavenly Restrictor", quest = "Create Physical HR", level = 300},
+    
+    -- Sorcery Heavenly Restrictor
+    {id = "SHR1", npc = "Sorcery Heavenly Restrictor", quest = "Train I", level = 100},
+    {id = "SHR2", npc = "Sorcery Heavenly Restrictor", quest = "Train II", level = 150},
+    {id = "SHR3", npc = "Sorcery Heavenly Restrictor", quest = "Train III", level = 200},
+    {id = "SHR4", npc = "Sorcery Heavenly Restrictor", quest = "Create Sorcery HR", level = 300},
+    
+    -- Beachgoer (Quest7)
+    {id = "CursedFighter", npc = "Beachgoer", quest = "Defeat Cursed Fighter", level = 115},
+    {id = "CursedFighter2", npc = "Beachgoer", quest = "Defeat Cursed Fighter Boss", level = 130},
+    
+    -- Beach Patrol Sorcerer (Quest8)
+    {id = "q6mob1", npc = "Beach Patrol Sorcerer", quest = "Defeat Rival Students", level = 150},
+    {id = "q6mob2", npc = "Beach Patrol Sorcerer", quest = "Defeat Rival Students Boss", level = 170},
+    
+    -- Slacking Student (Quest9)
+    {id = "ShoreCrawler1", npc = "Slacking Student", quest = "Defeat Shore Crawlers", level = 200},
+    {id = "ShoreCrawler2", npc = "Slacking Student", quest = "Defeat Shore Crawlers II", level = 220},
+    
+    -- Forager
+    {id = "Forager1", npc = "Forager", quest = "Craft Dragon Bone", level = 200},
+    {id = "Forager2", npc = "Forager", quest = "Craft Inverted Spear", level = 300},
+    
+    -- Scouting Sorcerer (Quest12)
+    {id = "DeepSeaCurse", npc = "Scouting Sorcerer", quest = "Defeat Deep Sea Curse", level = 240},
+    
+    -- Scared Student (Quest11)
+    {id = "Diver1", npc = "Scared Student", quest = "Defeat Divers", level = 270},
+    {id = "Diver2", npc = "Scared Student", quest = "Defeat Divers II", level = 300},
+    
+    -- Curse Investigator (Quest13)
+    {id = "CursedMonster", npc = "Curse Investigator", quest = "Defeat Cursed Monster", level = 320},
+    {id = "CursedSpirit1", npc = "Curse Investigator", quest = "Defeat Cursed Spirits", level = 350},
+    {id = "CursedSpirit2", npc = "Curse Investigator", quest = "Defeat Cursed Spirits II", level = 370},
+    {id = "CursedBeast", npc = "Curse Investigator", quest = "Defeat Cursed Beast", level = 400},
+    {id = "CursedMonster1", npc = "Curse Investigator", quest = "Defeat Cursed Monster I", level = 430},
+    {id = "CursedMonster2", npc = "Curse Investigator", quest = "Defeat Cursed Monster II", level = 450},
+    {id = "CurseUser", npc = "Curse Investigator", quest = "Defeat Curse User", level = 470},
+    
+    -- Hurt Student (Quest6) - Epic Quests
+    {id = "EpicNormalQuest", npc = "Hurt Student", quest = "Defeat Robed Fighters", level = 1},
+    {id = "EpicNormalQuest2", npc = "Hurt Student", quest = "Defeat Robed Fighters II", level = 10},
+    
+    -- Lost Wanderer - Light Katana
+    {id = "Light1", npc = "Lost Wanderer", quest = "Lost Lantern", level = 15},
+    {id = "Light2", npc = "Lost Wanderer", quest = "Clear the Way", level = 35},
+    {id = "Light3", npc = "Lost Wanderer", quest = "Core Material", level = 50},
+    {id = "Light4", npc = "Lost Wanderer", quest = "Craft Light Katana", level = 50},
+}
+
+-- Sort by level requirement
+table.sort(QuestData, function(a, b) return a.level < b.level end)
+
+-- Build dropdown: "NPC: Quest Name (Lv. X)"
+local QuestDropdownOptions = {}
+local QuestIdMap = {}
+for _, quest in ipairs(QuestData) do
+    local displayName = quest.npc .. ": " .. quest.quest .. " (Lv. " .. quest.level .. ")"
+    table.insert(QuestDropdownOptions, displayName)
+    QuestIdMap[displayName] = quest.id
 end
 
-player.CharacterAdded:Connect(onCharacterAdded)
-if player.Character then
-    onCharacterAdded(player.Character)
-end
+local SelectedQuestDisplay = QuestDropdownOptions[1]
 
-local sack = nil
-local function findSack()
-    for _, item in pairs(inventory:GetChildren()) do
-        if string.find(item.Name, "Sack") then
-            return item
+-- Helper Functions
+local function GetLocalCharacter()
+    local playersFolder = workspace:FindFirstChild("Characters")
+        and workspace.Characters:FindFirstChild("Server")
+        and workspace.Characters.Server:FindFirstChild("Players")
+    
+    if not playersFolder then return nil end
+    
+    local camPos = Camera.CFrame.Position
+    local closestChar = nil
+    local closestDist = math.huge
+    
+    for _, char in pairs(playersFolder:GetChildren()) do
+        if char:IsA("Model") then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local dist = (hrp.Position - camPos).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closestChar = char
+                end
+            end
+        end
+    end
+    
+    if closestChar and closestDist < 100 then return closestChar end
+    
+    for _, char in pairs(playersFolder:GetChildren()) do
+        if char:IsA("Model") and char:FindFirstChild("HumanoidRootPart") then
+            return char
         end
     end
     return nil
 end
 
-sack = findSack()
-
-inventory.ChildAdded:Connect(function(child)
-    if string.find(child.Name, "Sack") then
-        sack = child
-    end
-end)
-
-inventory.ChildRemoved:Connect(function(child)
-    if sack and child == sack then
-        sack = findSack()
-    end
-end)
-
-local itemsFolder = workspace:FindFirstChild("Items")
-local characters = workspace:FindFirstChild("Characters")
-local lastPos = nil
-local items = {}
-local kids = {}
-local name = nil
-
-local function isSackFull()
-    if not sack then return true end
-    local current = sack:GetAttribute("NumberItems")
-    local capacity = sack:GetAttribute("Capacity")
-    return current ~= nil and capacity ~= nil and current >= capacity
+local function GetPlayerHRP()
+    local char = GetLocalCharacter()
+    if char then return char:FindFirstChild("HumanoidRootPart") end
+    return nil
 end
 
-local function store(item)
-    if not sack then return end
-    local part = item:FindFirstChildWhichIsA("BasePart")
-    if part then
-        humanoidRootPart.CFrame = part.CFrame
-        task.wait(0.2)
-        ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("RequestBagStoreItem"):InvokeServer(sack, item)
-        task.wait(0.2)
-    end
+local function GetNPCsFolder()
+    return workspace:FindFirstChild("Characters")
+        and workspace.Characters:FindFirstChild("Server")
+        and workspace.Characters.Server:FindFirstChild("NPCs")
 end
 
-local Items = Tabs.Main:CreateDropdown("ItemsList", {
-    Title = "Items List",
-    Values = items,
-    Multi = false,
-    Default = "",
-})
-Items:OnChanged(function(Value)
-    name = Value
-end)
+local function GetCratesFolder()
+    return workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Crates")
+end
 
-local Kids = Tabs.Main:CreateDropdown("KidsList", {
-    Title = "Kids List",
-    Values = kids,
-    Multi = false,
-    Default = "",
-})
-Kids:OnChanged(function(Value)
-    name = Value
-end)
+local function GetStaticNPCsFolder()
+    return workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("StaticNPCs")
+end
 
-local debounce = false
-local function updateItemsDropdown()
-    if debounce then return end
-    debounce = true
+local function GetPlayerPosition()
+    local hrp = GetPlayerHRP()
+    if hrp then return hrp.Position, hrp.CFrame end
+    return Camera.CFrame.Position, Camera.CFrame
+end
 
-    task.delay(0.1, function()
-        if not Items then return end
-
-        local uniqueItems = {}
-        local addedNames = {}
-
-        for _, itm in pairs(itemsFolder:GetChildren()) do
-            if typeof(itm.Name) == "string" and not addedNames[itm.Name] then
-                table.insert(uniqueItems, itm.Name)
-                addedNames[itm.Name] = true
+local function GetNPCHealth(npc)
+    local hrp = npc:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local charDebug = hrp:FindFirstChild("CharDebug")
+        if charDebug then
+            -- Search all TextLabels for HP pattern
+            for _, desc in pairs(charDebug:GetDescendants()) do
+                if desc:IsA("TextLabel") then
+                    local current, max = desc.Text:match("HP:%s*(%d+)%s*/%s*(%d+)")
+                    if current and max then 
+                        return tonumber(current), tonumber(max) 
+                    end
+                end
             end
         end
-
-        items = uniqueItems
-        if typeof(Items.SetValues) == "function" then
-            pcall(function()
-                Items:SetValues(items)
-            end)
-        end
-
-        debounce = false
-    end)
+    end
+    return 100, 100
 end
 
-local debounce2 = false
-local function updateKidsDropdown()
-    if debounce2 then return end
-    debounce2 = true
-
-    task.delay(0.1, function ()
-        if not Kids then return end
-
-        local uniqueKids = {}
-
-        for _, kid in pairs(characters:GetChildren()) do
-            if string.find(kid.Name, "Child") then
-                table.insert(uniqueKids, kid.Name)
+local function GetNPCsInRange(range)
+    local npcsInRange = {}
+    local playerPos = GetPlayerPosition()
+    local npcsFolder = GetNPCsFolder()
+    if not npcsFolder then return npcsInRange end
+    
+    for _, npc in pairs(npcsFolder:GetChildren()) do
+        if npc:IsA("Model") then
+            local hrp = npc:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local currentHP, maxHP = GetNPCHealth(npc)
+                if currentHP > 0 then
+                    local distance = (hrp.Position - playerPos).Magnitude
+                    if distance <= range then
+                        table.insert(npcsInRange, {
+                            Model = npc,
+                            Distance = distance,
+                            HRP = hrp,
+                            CurrentHP = currentHP,
+                            MaxHP = maxHP
+                        })
+                    end
+                end
             end
         end
-
-        kids = uniqueKids
-        if typeof(Kids.SetValue) == "function" then
-            pcall(function ()
-                Kids:SetValues(kids)
-            end)
-        end
-
-        debounce2 = false
-    end)
+    end
+    return npcsInRange
 end
 
-updateItemsDropdown()
-updateKidsDropdown()
+-- Smooth movement (forward declaration needed)
+local SmoothMoveTo
 
-Tabs.Main:CreateButton{
-    Title = "Bring Item",
-    Description = "",
-    Callback = function()
-        lastPos = humanoidRootPart.CFrame
-        pcall(function ()
-            local all = {}
-            for _, obj in pairs(itemsFolder:GetChildren()) do table.insert(all, obj) end
-            for _, obj in pairs(characters:GetChildren()) do table.insert(all, obj) end
+-- Find quest giver NPC by name (searches prompt ObjectText)
+local function FindQuestGiverNPC(npcName)
+    local staticNPCs = GetStaticNPCsFolder()
+    if staticNPCs then
+        for _, npc in pairs(staticNPCs:GetChildren()) do
+            if npc:IsA("Model") then
+                -- Check prompt ObjectText for the NPC name
+                local prompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt and prompt.ObjectText then
+                    if prompt.ObjectText == npcName or prompt.ObjectText:find(npcName) then
+                        local hrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart")
+                        if hrp then
+                            return { Model = npc, Position = hrp.Position, Name = prompt.ObjectText }
+                        end
+                    end
+                end
+                -- Also check model name as fallback
+                if npc.Name:find(npcName) or npc.Name == npcName then
+                    local hrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart")
+                    if hrp then
+                        return { Model = npc, Position = hrp.Position, Name = npc.Name }
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
 
-            for _, item in pairs(all) do
-                if isSackFull() then break end
-                if item.Name == name then
-                    store(item)
+local function GetSelectedQuestGiverName()
+    if not SelectedQuestDisplay then return nil end
+    for _, quest in ipairs(QuestData) do
+        local displayName = quest.npc .. ": " .. quest.quest .. " (Lv. " .. quest.level .. ")"
+        if displayName == SelectedQuestDisplay then
+            return quest.npc
+        end
+    end
+    return nil
+end
+
+local function GoToQuestGiver()
+    local npcName = GetSelectedQuestGiverName()
+    if not npcName then return false end
+    
+    local questGiver = FindQuestGiverNPC(npcName)
+    if not questGiver then return false end
+    
+    local targetPos = questGiver.Position + Vector3.new(0, 0, 5)
+    
+    local wasCrate = CrateFarmEnabled
+    CrateFarmEnabled = true
+    SmoothMoveTo(CFrame.new(targetPos), CrateMoveSpeed)
+    CrateFarmEnabled = wasCrate
+    
+    task.wait(0.5)
+    return true
+end
+
+local function GetCrateRarity(prompt)
+    if prompt and prompt.ObjectText then return prompt.ObjectText end
+    return "Unknown"
+end
+
+local function CheckForRareCrate()
+    local cratesFolder = GetCratesFolder()
+    if not cratesFolder then return nil end
+    
+    local rareCrates = {"Special Grade Crate", "Holiday Crate", "Strengthened Crate II", "Strengthened Crate I", "Volcanic Crate", "Valuable Crate", "Flame Crate"}
+    
+    for _, crate in pairs(cratesFolder:GetChildren()) do
+        local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then
+            local rarity = GetCrateRarity(prompt)
+            for _, rareName in ipairs(rareCrates) do
+                if rarity == rareName and CrateFilters[rarity] ~= false then
+                    return rarity
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function GetAllCrates()
+    local crates = {}
+    local playerPos = GetPlayerPosition()
+    local cratesFolder = GetCratesFolder()
+    if not cratesFolder then return crates end
+    
+    for _, crate in pairs(cratesFolder:GetChildren()) do
+        local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then
+            local rarity = GetCrateRarity(prompt)
+            if CrateFilters[rarity] ~= false then
+                local pos, part
+                if crate:IsA("Model") then
+                    part = crate.PrimaryPart or crate:FindFirstChildWhichIsA("BasePart")
+                    if part then pos = part.Position end
+                elseif crate:IsA("BasePart") then
+                    part = crate
+                    pos = crate.Position
+                end
+                
+                if pos and part then
+                    local distance = (pos - playerPos).Magnitude
+                    local priority = CratePriority[rarity] or 0
+                    table.insert(crates, {
+                        Crate = crate,
+                        Part = part,
+                        Position = pos,
+                        Distance = distance,
+                        Prompt = prompt,
+                        Rarity = rarity,
+                        Priority = priority
+                    })
+                end
+            end
+        end
+    end
+    
+    table.sort(crates, function(a, b)
+        if a.Priority ~= b.Priority then return a.Priority > b.Priority end
+        return a.Distance < b.Distance
+    end)
+    return crates
+end
+
+local lastAttackTime = 0
+
+local function AttackNPCs(npcList)
+    -- Rate limit attacks
+    if tick() - lastAttackTime < 0.15 then return false end
+    lastAttackTime = tick()
+    
+    local localChar = GetLocalCharacter()
+    if not localChar then return false end
+    
+    local playerHRP = localChar:FindFirstChild("HumanoidRootPart")
+    if not playerHRP then return false end
+    
+    -- Get up to 5 valid NPCs
+    local validNPCs = {}
+    for _, npcData in pairs(npcList) do
+        if #validNPCs >= 5 then break end
+        local npcModel = npcData.Model
+        if npcModel and npcModel.Parent and npcModel:FindFirstChild("HumanoidRootPart") then
+            table.insert(validNPCs, npcModel)
+        end
+    end
+    
+    if #validNPCs == 0 then return false end
+    
+    local firstHRP = validNPCs[1]:FindFirstChild("HumanoidRootPart")
+    local direction = (firstHRP.Position - playerHRP.Position).Unit
+    local windowID = localChar.Name .. "_Punch"
+    
+    -- Call skill remote
+    pcall(function()
+        SkillRemote:InvokeServer("Punch", localChar, Vector3.new(direction.X, direction.Y, direction.Z), 1, 0.5)
+    end)
+    
+    -- Call damage remote with all valid NPCs
+    pcall(function()
+        DamageRemote:InvokeServer(
+            validNPCs, 
+            true,
+            { 
+                CanParry = true, 
+                Origin = playerHRP.CFrame, 
+                Parries = {}, 
+                WindowID = windowID, 
+                LocalCharacter = localChar, 
+                SkillID = "Punch" 
+            }
+        )
+    end)
+    
+    return true
+end
+
+-- Smooth movement function - constant speed, no acceleration, noclip
+SmoothMoveTo = function(targetCFrame, customSpeed)
+    local serverChar = GetLocalCharacter()
+    if not serverChar then return false end
+    
+    local hrp = serverChar:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    -- Clean up existing movers
+    pcall(function()
+        local existing = hrp:FindFirstChild("MoveVelocity")
+        if existing then existing:Destroy() end
+        local existingGyro = hrp:FindFirstChild("MoveGyro")
+        if existingGyro then existingGyro:Destroy() end
+    end)
+    
+    local targetPos = targetCFrame.Position
+    local speed = math.min(customSpeed or CrateMoveSpeed, 300)
+    local startPos = hrp.Position
+    local distance = (targetPos - startPos).Magnitude
+    
+    if distance < 3 then return true end
+    
+    local direction = (targetPos - startPos).Unit
+    
+    -- Disable collisions (noclip)
+    local originalCanCollide = {}
+    pcall(function()
+        for _, part in pairs(serverChar:GetDescendants()) do
+            if part:IsA("BasePart") then
+                originalCanCollide[part] = part.CanCollide
+                part.CanCollide = false
+            end
+        end
+    end)
+    
+    -- Disable ALL animations (including custom ones)
+    local humanoid = serverChar:FindFirstChildOfClass("Humanoid")
+    
+    local function StopAllAnimations()
+        pcall(function()
+            if humanoid then
+                -- Force physics state to prevent falling animation
+                humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                
+                local animator = humanoid:FindFirstChildOfClass("Animator")
+                if animator then
+                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                        track:Stop(0)
+                    end
+                end
+            end
+            
+            -- Stop AnimationController tracks (custom anims)
+            for _, animController in pairs(serverChar:GetDescendants()) do
+                if animController:IsA("AnimationController") then
+                    local animator = animController:FindFirstChildOfClass("Animator")
+                    if animator then
+                        for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                            track:Stop(0)
+                        end
+                    end
+                end
+            end
+            
+            -- Disable any animation scripts
+            for _, child in pairs(serverChar:GetDescendants()) do
+                if child:IsA("LocalScript") or child:IsA("Script") then
+                    if child.Name:lower():find("anim") then
+                        child.Disabled = true
+                    end
                 end
             end
         end)
-        humanoidRootPart.CFrame = lastPos
     end
-}
+    
+    StopAllAnimations()
+    
+    -- Create BodyVelocity with constant velocity
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Name = "MoveVelocity"
+    bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bodyVelocity.Velocity = direction * speed
+    bodyVelocity.Parent = hrp
+    
+    -- Create BodyGyro to keep player upright
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.Name = "MoveGyro"
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.P = 5000
+    bodyGyro.D = 500
+    bodyGyro.CFrame = CFrame.new(startPos, targetPos)
+    bodyGyro.Parent = hrp
+    
+    -- Calculate travel time
+    local travelTime = distance / speed
+    local startTime = tick()
+    
+    -- Wait until we should arrive (check every 0.2s)
+    while tick() - startTime < travelTime do
+        if not CrateFarmEnabled and not NPCFarmEnabled and not QuestFarmAboveEnabled and not QuestFarmBelowEnabled then break end
+        if not hrp or not hrp.Parent then break end
+        
+        -- Keep noclip active and stop animations
+        pcall(function()
+            for _, part in pairs(serverChar:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end)
+        StopAllAnimations()
+        
+        task.wait(0.2)
+    end
+    
+    -- Cleanup movers
+    pcall(function()
+        if bodyVelocity and bodyVelocity.Parent then bodyVelocity:Destroy() end
+        if bodyGyro and bodyGyro.Parent then bodyGyro:Destroy() end
+    end)
+    
+    -- Restore collisions
+    pcall(function()
+        for part, canCollide in pairs(originalCanCollide) do
+            if part and part.Parent then
+                part.CanCollide = canCollide
+            end
+        end
+    end)
+    
+    -- Restore humanoid state
+    pcall(function()
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end)
+    
+    return true
+end
 
-Tabs.Main:CreateButton{
-    Title = "Teleport to Item",
-    Description = "",
-    Callback = function()
-        local item = itemsFolder:FindFirstChild(name) or characters:FindFirstChild(name)
-        if item then
-            local part = item:FindFirstChildWhichIsA("BasePart")
-            if part then
-                humanoidRootPart.CFrame = part.CFrame
+-- Floating system - stable, no gravity, no wobble
+local function StartFloating(targetPos)
+    local serverChar = GetLocalCharacter()
+    if not serverChar then return end
+    
+    local hrp = serverChar:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local humanoid = serverChar:FindFirstChildOfClass("Humanoid")
+    
+    -- Clean up existing
+    pcall(function()
+        local existing = hrp:FindFirstChild("FloatPosition")
+        if existing then existing:Destroy() end
+        local existingGyro = hrp:FindFirstChild("FloatGyro")
+        if existingGyro then existingGyro:Destroy() end
+        local existingVel = hrp:FindFirstChild("FloatVelocity")
+        if existingVel then existingVel:Destroy() end
+    end)
+    
+    -- Set humanoid to physics state to prevent falling animation
+    pcall(function()
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+    end)
+    
+    -- BodyPosition to hold position
+    local bodyPosition = Instance.new("BodyPosition")
+    bodyPosition.Name = "FloatPosition"
+    bodyPosition.Position = targetPos
+    bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bodyPosition.P = 50000
+    bodyPosition.D = 10000
+    bodyPosition.Parent = hrp
+    
+    -- BodyGyro to prevent rotation/wobble
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.Name = "FloatGyro"
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.P = 50000
+    bodyGyro.D = 10000
+    bodyGyro.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, 0, 0)
+    bodyGyro.Parent = hrp
+    
+    -- BodyVelocity set to zero to cancel all momentum
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Name = "FloatVelocity"
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.MaxForce = Vector3.new(0, 0, 0) -- Let BodyPosition handle movement
+    bodyVelocity.Parent = hrp
+    
+    -- Zero out any existing velocity
+    pcall(function()
+        hrp.Velocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end)
+    
+    -- Mark as floating
+    FloatConnection = true
+end
+
+local function UpdateFloatPosition(newPos)
+    local serverChar = GetLocalCharacter()
+    if not serverChar then return end
+    
+    local hrp = serverChar:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local humanoid = serverChar:FindFirstChildOfClass("Humanoid")
+    
+    -- Keep humanoid in physics state
+    pcall(function()
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+    end)
+    
+    local bodyPosition = hrp:FindFirstChild("FloatPosition")
+    if bodyPosition then bodyPosition.Position = newPos end
+    
+    local bodyGyro = hrp:FindFirstChild("FloatGyro")
+    if bodyGyro then bodyGyro.CFrame = CFrame.new(newPos) * CFrame.Angles(0, 0, 0) end
+    
+    -- Zero out velocity
+    pcall(function()
+        hrp.Velocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end)
+end
+
+local function StopFloating()
+    FloatConnection = nil
+    
+    local serverChar = GetLocalCharacter()
+    if serverChar then
+        local hrp = serverChar:FindFirstChild("HumanoidRootPart")
+        local humanoid = serverChar:FindFirstChildOfClass("Humanoid")
+        
+        if hrp then
+            pcall(function()
+                local fp = hrp:FindFirstChild("FloatPosition")
+                if fp then fp:Destroy() end
+                local fg = hrp:FindFirstChild("FloatGyro")
+                if fg then fg:Destroy() end
+                local fv = hrp:FindFirstChild("FloatVelocity")
+                if fv then fv:Destroy() end
+            end)
+        end
+        
+        -- Restore humanoid state
+        pcall(function()
+            if humanoid then
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end)
+    end
+end
+
+local function FirePrompt(prompt)
+    if not prompt or not prompt.Parent then return false end
+    pcall(function() fireproximityprompt(prompt) end)
+    pcall(function() fireproximityprompt(prompt, 9999) end)
+    pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(prompt.HoldDuration + 0.1)
+        prompt:InputHoldEnd()
+    end)
+    return true
+end
+
+local function CollectCrate(crateData)
+    local targetPos = crateData.Position + Vector3.new(0, 3, 0)
+    local targetCFrame = CFrame.new(targetPos)
+    
+    local success = SmoothMoveTo(targetCFrame)
+    if not success then return false end
+    
+    task.wait(0.2)
+    
+    -- Use remote to open crate
+    pcall(function()
+        OpenCrateRemote:InvokeServer(crateData.Crate.Name)
+    end)
+    
+    -- Also fire prompt in case remote doesn't work
+    if crateData.Prompt and crateData.Prompt.Parent then
+        FirePrompt(crateData.Prompt)
+    end
+    
+    -- Delete crate from client to prevent re-collecting
+    pcall(function()
+        if crateData.Crate and crateData.Crate.Parent then
+            crateData.Crate:Destroy()
+        end
+    end)
+    
+    return true
+end
+
+local function GetAllQuestHighlightedEnemies()
+    local enemies = {}
+    local playerPos = GetPlayerPosition()
+    
+    pcall(function()
+        local characters = workspace:FindFirstChild("Characters")
+        if not characters then return end
+        
+        local client = characters:FindFirstChild("Client")
+        if not client then return end
+        
+        for _, clientModel in pairs(client:GetChildren()) do
+            if clientModel:IsA("Model") then
+                local hasQuestHighlight = false
+                for _, child in pairs(clientModel:GetChildren()) do
+                    if child:IsA("Highlight") and child.Name == "QuestNPCOutline" then
+                        hasQuestHighlight = true
+                        break
+                    end
+                end
+                
+                if hasQuestHighlight then
+                    local hrp = clientModel:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local currentHP, maxHP = 100, 100
+                        local npcsFolder = GetNPCsFolder()
+                        if npcsFolder then
+                            local closestDist = math.huge
+                            local matchedNPC = nil
+                            for _, npc in pairs(npcsFolder:GetChildren()) do
+                                if npc:IsA("Model") then
+                                    local npcHRP = npc:FindFirstChild("HumanoidRootPart")
+                                    if npcHRP then
+                                        local dist = (npcHRP.Position - hrp.Position).Magnitude
+                                        if dist < closestDist and dist < 5 then
+                                            closestDist = dist
+                                            matchedNPC = npc
+                                        end
+                                    end
+                                end
+                            end
+                            if matchedNPC then
+                                currentHP, maxHP = GetNPCHealth(matchedNPC)
+                            end
+                        end
+                        
+                        if currentHP > 0 then
+                            local dist = (hrp.Position - playerPos).Magnitude
+                            table.insert(enemies, {
+                                Model = clientModel,
+                                HRP = hrp,
+                                Position = hrp.Position,
+                                Distance = dist,
+                                CurrentHP = currentHP,
+                                MaxHP = maxHP
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    table.sort(enemies, function(a, b) return a.Distance < b.Distance end)
+    return enemies
+end
+
+local function GetBestNPCTarget()
+    local npcsFolder = GetNPCsFolder()
+    if not npcsFolder then return nil end
+    
+    local playerPos = GetPlayerPosition()
+    local bestNPC = nil
+    local bestDist = math.huge
+    
+    for _, npc in pairs(npcsFolder:GetChildren()) do
+        if npc:IsA("Model") then
+            local hrp = npc:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local currentHP, maxHP = GetNPCHealth(npc)
+                if currentHP > 0 then
+                    local passesFilter = NPCMinHPFilter == 0 or maxHP >= NPCMinHPFilter
+                    if passesFilter then
+                        local distance = (hrp.Position - playerPos).Magnitude
+                        if distance < bestDist then
+                            bestDist = distance
+                            bestNPC = {Model = npc, HRP = hrp, CurrentHP = currentHP, MaxHP = maxHP, Distance = distance}
+                        end
+                    end
+                end
             end
         end
     end
-}
+    return bestNPC
+end
 
-local campfire = workspace:FindFirstChild("Map"):FindFirstChild("Campground"):FindFirstChild("MainFire")
-Tabs.Main:CreateButton{
-    Title = "Teleport to Campfire",
-    Description = "",
-    Callback = function()
-        if campfire then
-            local center = campfire:FindFirstChild("Center")
-            if center then
-                humanoidRootPart.CFrame = center.CFrame * CFrame.new(0, 13, 0)
+-- Farm Loops
+local function CrateFarmLoop()
+    while CrateFarmEnabled do
+        IsFarming = true
+        local crates = GetAllCrates()
+        if #crates > 0 then
+            CollectCrate(crates[1])
+            task.wait(CrateCooldown)
+        else
+            task.wait(0.5)
+        end
+        task.wait(0.05)
+    end
+    IsFarming = false
+end
+
+local function NPCFarmLoop()
+    local target = GetBestNPCTarget()
+    if target and target.HRP then
+        local npcPos = target.HRP.Position
+        local offset = KillAuraRange * 0.75
+        local targetY = NPCFarmPosition == "Above" and npcPos.Y + offset or npcPos.Y - offset
+        local targetPos = Vector3.new(npcPos.X, targetY, npcPos.Z)
+        
+        local wasCrate = CrateFarmEnabled
+        CrateFarmEnabled = true
+        SmoothMoveTo(CFrame.new(targetPos), NPCFarmMoveSpeed)
+        CrateFarmEnabled = wasCrate
+        StartFloating(targetPos)
+    end
+    
+    while NPCFarmEnabled do
+        local target = GetBestNPCTarget()
+        if target and target.HRP then
+            local npcPos = target.HRP.Position
+            local offset = KillAuraRange * 0.75
+            local targetY = NPCFarmPosition == "Above" and npcPos.Y + offset or npcPos.Y - offset
+            local targetPos = Vector3.new(npcPos.X, targetY, npcPos.Z)
+            UpdateFloatPosition(targetPos)
+        end
+        task.wait(0.3)
+    end
+    StopFloating()
+end
+
+-- Kill Aura
+local auraRunning = false
+
+local function StartKillAura()
+    if auraRunning then return end
+    auraRunning = true
+    
+    task.spawn(function()
+        while auraRunning and KillAuraEnabled do
+            local npcs = GetNPCsInRange(KillAuraRange)
+            if #npcs > 0 then
+                AttackNPCs(npcs)
+            end
+            task.wait(0.2)
+        end
+        auraRunning = false
+    end)
+end
+
+local function StopKillAura()
+    auraRunning = false
+end
+
+local function AcceptQuest(questId)
+    pcall(function() QuestRemote:InvokeServer(questId) end)
+end
+
+-- ESP Functions
+local function CreateNPCESP(npc)
+    local hrp = npc:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local currentHP, maxHP = GetNPCHealth(npc)
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "NPCESPHighlight"
+    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+    highlight.FillTransparency = 0.8
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Adornee = npc
+    highlight.Parent = game:GetService("CoreGui")
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "NPCESPBillboard"
+    billboard.Size = UDim2.new(0, 100, 0, 40) -- Fixed pixel size
+    billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+    billboard.AlwaysOnTop = true
+    
+    billboard.Adornee = hrp
+    billboard.Parent = game:GetService("CoreGui")
+    
+    -- Dark background frame
+    local bgFrame = Instance.new("Frame")
+    bgFrame.Name = "Background"
+    bgFrame.Size = UDim2.new(1, 0, 1, 0)
+    bgFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    bgFrame.BackgroundTransparency = 0.3
+    bgFrame.BorderSizePixel = 0
+    bgFrame.Parent = billboard
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = bgFrame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 60)
+    stroke.Thickness = 1
+    stroke.Parent = bgFrame
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 4)
+    padding.PaddingRight = UDim.new(0, 4)
+    padding.PaddingTop = UDim.new(0, 2)
+    padding.PaddingBottom = UDim.new(0, 2)
+    padding.Parent = bgFrame
+    
+    local hpText = Instance.new("TextLabel")
+    hpText.Name = "HPText"
+    hpText.Size = UDim2.new(1, 0, 0.5, 0)
+    hpText.BackgroundTransparency = 1
+    hpText.TextColor3 = Color3.fromRGB(100, 255, 100)
+    hpText.TextStrokeTransparency = 0.5
+    hpText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    hpText.Font = Enum.Font.GothamBold
+    hpText.TextSize = 12
+    hpText.TextXAlignment = Enum.TextXAlignment.Center
+    hpText.Text = math.floor(currentHP) .. " / " .. math.floor(maxHP)
+    hpText.Parent = bgFrame
+    
+    local distText = Instance.new("TextLabel")
+    distText.Name = "DistText"
+    distText.Size = UDim2.new(1, 0, 0.5, 0)
+    distText.Position = UDim2.new(0, 0, 0.5, 0)
+    distText.BackgroundTransparency = 1
+    distText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    distText.TextStrokeTransparency = 0.5
+    distText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distText.Font = Enum.Font.Gotham
+    distText.TextSize = 10
+    distText.TextXAlignment = Enum.TextXAlignment.Center
+    distText.Text = "0m"
+    distText.Parent = bgFrame
+    
+    NPCESPObjects[npc] = {Highlight = highlight, Billboard = billboard, HPText = hpText, DistText = distText, HRP = hrp}
+end
+
+local function RemoveNPCESP(npc)
+    if NPCESPObjects[npc] then
+        pcall(function() NPCESPObjects[npc].Highlight:Destroy() end)
+        pcall(function() NPCESPObjects[npc].Billboard:Destroy() end)
+        NPCESPObjects[npc] = nil
+    end
+end
+
+local function ClearAllNPCESP()
+    for npc in pairs(NPCESPObjects) do RemoveNPCESP(npc) end
+end
+
+local function UpdateNPCESP()
+    if not NPCESPEnabled then return end
+    local playerPos = GetPlayerPosition()
+    local npcsFolder = GetNPCsFolder()
+    if not npcsFolder then return end
+    
+    for _, npc in pairs(npcsFolder:GetChildren()) do
+        if npc:IsA("Model") and not NPCESPObjects[npc] then
+            local currentHP = GetNPCHealth(npc)
+            if currentHP > 0 then CreateNPCESP(npc) end
+        end
+    end
+    
+    for npc, esp in pairs(NPCESPObjects) do
+        local currentHP, maxHP = GetNPCHealth(npc)
+        if not npc.Parent or currentHP <= 0 then
+            RemoveNPCESP(npc)
+        else
+            local dist = esp.HRP and (esp.HRP.Position - playerPos).Magnitude or 100
+            esp.HPText.Text = math.floor(currentHP) .. " / " .. math.floor(maxHP)
+            esp.DistText.Text = math.floor(dist) .. "m"
+            if dist <= KillAuraRange then
+                esp.Highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                esp.Highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+            else
+                esp.Highlight.FillColor = Color3.fromRGB(255, 255, 0)
+                esp.Highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
             end
         end
     end
-}
+end
 
-itemsFolder.ChildAdded:Connect(updateItemsDropdown)
-itemsFolder.ChildRemoved:Connect(updateItemsDropdown)
-characters.ChildAdded:Connect(updateKidsDropdown)
-characters.ChildRemoved:Connect(updateKidsDropdown)
+local function CreateCrateESP(crate, part)
+    local rarity = GetCrateRarity(crate:FindFirstChildWhichIsA("ProximityPrompt", true))
+    
+    local selectionBox = Instance.new("SelectionBox")
+    selectionBox.Color3 = Color3.fromRGB(0, 200, 255)
+    selectionBox.LineThickness = 0.03
+    selectionBox.Adornee = crate
+    selectionBox.Parent = game:GetService("CoreGui")
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0, 80, 0, 35) -- Fixed pixel size
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+    billboard.AlwaysOnTop = true
+    
+    billboard.Adornee = part
+    billboard.Parent = game:GetService("CoreGui")
+    
+    -- Dark background frame
+    local bgFrame = Instance.new("Frame")
+    bgFrame.Name = "Background"
+    bgFrame.Size = UDim2.new(1, 0, 1, 0)
+    bgFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    bgFrame.BackgroundTransparency = 0.3
+    bgFrame.BorderSizePixel = 0
+    bgFrame.Parent = billboard
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = bgFrame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 150, 200)
+    stroke.Thickness = 1
+    stroke.Parent = bgFrame
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 4)
+    padding.PaddingRight = UDim.new(0, 4)
+    padding.PaddingTop = UDim.new(0, 2)
+    padding.PaddingBottom = UDim.new(0, 2)
+    padding.Parent = bgFrame
+    
+    local nameText = Instance.new("TextLabel")
+    nameText.Name = "NameText"
+    nameText.Size = UDim2.new(1, 0, 0.5, 0)
+    nameText.BackgroundTransparency = 1
+    nameText.TextColor3 = Color3.fromRGB(100, 220, 255)
+    nameText.TextStrokeTransparency = 0.5
+    nameText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameText.Font = Enum.Font.GothamBold
+    nameText.TextSize = 11
+    nameText.TextXAlignment = Enum.TextXAlignment.Center
+    nameText.Text = rarity:gsub(" Crate", "")
+    nameText.Parent = bgFrame
+    
+    local distText = Instance.new("TextLabel")
+    distText.Name = "DistText"
+    distText.Size = UDim2.new(1, 0, 0.5, 0)
+    distText.Position = UDim2.new(0, 0, 0.5, 0)
+    distText.BackgroundTransparency = 1
+    distText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    distText.TextStrokeTransparency = 0.5
+    distText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distText.Font = Enum.Font.Gotham
+    distText.TextSize = 10
+    distText.TextXAlignment = Enum.TextXAlignment.Center
+    distText.Text = "0m"
+    distText.Parent = bgFrame
+    
+    CrateESPObjects[crate] = {SelectionBox = selectionBox, Billboard = billboard, DistText = distText, Part = part}
+end
 
-Window:SelectTab(1)
+local function RemoveCrateESP(crate)
+    if CrateESPObjects[crate] then
+        pcall(function() CrateESPObjects[crate].SelectionBox:Destroy() end)
+        pcall(function() CrateESPObjects[crate].Billboard:Destroy() end)
+        CrateESPObjects[crate] = nil
+    end
+end
+
+local function ClearAllCrateESP()
+    for crate in pairs(CrateESPObjects) do RemoveCrateESP(crate) end
+end
+
+local function UpdateCrateESP()
+    if not CrateESPEnabled then return end
+    local playerPos = GetPlayerPosition()
+    local cratesFolder = GetCratesFolder()
+    if not cratesFolder then return end
+    
+    for _, crate in pairs(cratesFolder:GetChildren()) do
+        if not CrateESPObjects[crate] then
+            local prompt = crate:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                local part = crate:IsA("Model") and (crate.PrimaryPart or crate:FindFirstChildWhichIsA("BasePart")) or crate
+                if part then CreateCrateESP(crate, part) end
+            end
+        end
+    end
+    
+    for crate, esp in pairs(CrateESPObjects) do
+        if not crate.Parent or not crate:FindFirstChildWhichIsA("ProximityPrompt", true) then
+            RemoveCrateESP(crate)
+        elseif esp.Part then
+            local dist = (esp.Part.Position - playerPos).Magnitude
+            esp.DistText.Text = math.floor(dist) .. "m"
+        end
+    end
+end
+
+-- ESP Loop
+task.spawn(function()
+    while true do
+        task.wait(0.2) -- Slower update to reduce lag
+        pcall(UpdateNPCESP)
+        pcall(UpdateCrateESP)
+    end
+end)
+
+-- GUI
+local Window = Rayfield:CreateWindow({
+    Name = "Area's Script Hub (Free)",
+    Icon = "sword",
+    LoadingTitle = "Area's Script Hub",
+    LoadingSubtitle = "Free Version",
+    Theme = "Default",
+    ToggleUIKeybind = "K",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "AreaScriptHub",
+        FileName = "PixelQuestConfigFree"
+    }
+})
+
+-- Combat Tab
+local MainTab = Window:CreateTab("Combat", "swords")
+MainTab:CreateSection("Kill Aura")
+MainTab:CreateToggle({Name = "Enabled", CurrentValue = false, Flag = "KillAuraEnabled", Callback = function(v) KillAuraEnabled = v if v then StartKillAura() else StopKillAura() end end})
+MainTab:CreateSlider({Name = "Attack Range", Range = {10, 90}, Increment = 5, Suffix = " studs", CurrentValue = 50, Flag = "KillAuraRange", Callback = function(v) KillAuraRange = v end})
+MainTab:CreateLabel("Hits all enemies in range")
+
+-- Farm Tab
+local FarmTab = Window:CreateTab("Farm", "package")
+
+FarmTab:CreateSection("NPC Farming")
+NPCFarmAboveToggle = FarmTab:CreateToggle({
+    Name = "Float Above Enemies",
+    CurrentValue = false,
+    Flag = "NPCFarmAbove",
+    Callback = function(v)
+        if v then
+            NPCFarmPosition = "Above"
+            NPCFarmEnabled = true
+            task.spawn(NPCFarmLoop)
+        else
+            NPCFarmEnabled = false
+            StopFloating()
+        end
+    end
+})
+
+FarmTab:CreateSlider({Name = "Move Speed", Range = {20, 500}, Increment = 10, Suffix = " studs/s", CurrentValue = 80, Flag = "NPCFarmMoveSpeed", Callback = function(v) NPCFarmMoveSpeed = v end})
+FarmTab:CreateInput({Name = "Min HP Filter", CurrentValue = "0", PlaceholderText = "0 = all NPCs", RemoveTextAfterFocusLost = false, Flag = "NPCMinHPFilter", Callback = function(text) local num = tonumber(text) if num then NPCMinHPFilter = num end end})
+
+FarmTab:CreateSection("Status")
+local StatusLabel = FarmTab:CreateLabel("Status: Idle")
+
+-- Quest Tab
+local QuestTab = Window:CreateTab("Quests", "scroll")
+QuestTab:CreateSection("Quest Selection")
+QuestTab:CreateDropdown({Name = "Choose Quest", Options = QuestDropdownOptions, CurrentOption = {QuestDropdownOptions[1]}, MultipleOptions = false, Callback = function(Options) SelectedQuestDisplay = Options[1] end})
+QuestTab:CreateButton({Name = "Accept Quest", Callback = function() local questId = QuestIdMap[SelectedQuestDisplay] if questId then AcceptQuest(questId) Rayfield:Notify({Title = "Success", Content = "Quest accepted!", Duration = 2}) end end})
+QuestTab:CreateButton({Name = "Teleport to NPC", Callback = function() if GoToQuestGiver() then Rayfield:Notify({Title = "Success", Content = "Arrived at NPC!", Duration = 2}) else Rayfield:Notify({Title = "Error", Content = "NPC not found", Duration = 2}) end end})
+
+QuestTab:CreateSection("Options")
+QuestTab:CreateToggle({Name = "Auto Re-accept Quest", CurrentValue = false, Flag = "AutoReacceptQuest", Callback = function(v) AutoQuestEnabled = v if v then task.spawn(function() while AutoQuestEnabled do local questId = QuestIdMap[SelectedQuestDisplay] if questId then AcceptQuest(questId) end task.wait(2) end end) end end})
+
+-- ESP Tab
+local ESPTab = Window:CreateTab("ESP", "eye")
+ESPTab:CreateSection("Enemy ESP")
+ESPTab:CreateToggle({Name = "Show NPCs", CurrentValue = false, Flag = "NPCESPEnabled", Callback = function(v) NPCESPEnabled = v if not v then ClearAllNPCESP() end end})
+ESPTab:CreateSection("Crate ESP")
+ESPTab:CreateToggle({Name = "Show Crates", CurrentValue = false, Flag = "CrateESPEnabled", Callback = function(v) CrateESPEnabled = v if not v then ClearAllCrateESP() end end})
+ESPTab:CreateLabel("Red = In attack range")
+
+-- Info Tab
+local InfoTab = Window:CreateTab("Info", "info")
+InfoTab:CreateSection("About")
+InfoTab:CreateLabel("Area's Script Hub")
+
+InfoTab:CreateSection("Quick Guide")
+InfoTab:CreateLabel("Combat: Auto-attack nearby enemies")
+InfoTab:CreateLabel("Farm: Grind NPCs automatically")
+InfoTab:CreateLabel("Quests: Auto re-accept quests")
+InfoTab:CreateLabel("ESP: See through walls")
+
+InfoTab:CreateSection("Discord")
+InfoTab:CreateButton({
+    Name = "Copy Invite Link",
+    Callback = function()
+        pcall(function() setclipboard("discord.gg/gkXHm4wKjM") end)
+        Rayfield:Notify({Title = "Copied!", Content = "Invite link copied", Duration = 2})
+    end
+})
+
+InfoTab:CreateButton({
+    Name = "Destroy GUI",
+    Callback = function()
+        NPCFarmEnabled = false
+        KillAuraEnabled = false
+        AutoQuestEnabled = false
+        StopKillAura()
+        StopFloating()
+        ClearAllNPCESP()
+        ClearAllCrateESP()
+        Rayfield:Destroy()
+    end
+})
+
+-- Status update loop
+task.spawn(function()
+    while task.wait(0.5) do
+        pcall(function()
+            StatusLabel:Set("Status: " .. (NPCFarmEnabled and "Farming NPCs..." or "Idle"))
+        end)
+    end
+end)
+
+Rayfield:LoadConfiguration()
+Rayfield:Notify({Title = "Loaded", Content = "Area's Script Hub (Free)", Duration = 3, Image = "check"})
